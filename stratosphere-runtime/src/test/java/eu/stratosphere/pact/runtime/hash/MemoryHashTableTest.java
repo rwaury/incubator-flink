@@ -345,6 +345,53 @@ public class MemoryHashTableTest {
 	}
 	
 	@Test
+	public void testResize() {
+		
+		try {
+			final int NUM_MEM_PAGES = 30 * NUM_PAIRS / PAGE_SIZE;
+			
+			final IntPair[] pairs = getRandomizedIntPairs(NUM_PAIRS, rnd);
+			
+			List<MemorySegment> memory = getMemory(NUM_MEM_PAGES, PAGE_SIZE);
+			CompactingHashTable<IntPair> table = new CompactingHashTable<IntPair>(serializer, comparator, memory);
+			table.open();
+			
+			for (int i = 0; i < NUM_PAIRS; i++) {
+				table.insert(pairs[i]);
+			}
+	
+			AbstractHashTableProber<IntPair, IntPair> prober = table.getProber(comparator, pairComparator);
+			IntPair target = new IntPair();
+			
+			for (int i = 0; i < NUM_PAIRS; i++) {
+				assertTrue(prober.getMatchFor(pairs[i], target));
+				assertEquals(pairs[i].getValue(), target.getValue());
+			}
+			
+			// make sure there is enough memory for resize
+			memory.addAll(getMemory(100, PAGE_SIZE));
+			assertTrue(table.triggerResize());
+			
+			for (int i = 0; i < NUM_PAIRS; i++) {
+				assertTrue(prober.getMatchFor(pairs[i], target));
+				assertEquals(pairs[i].getValue(), target.getValue());
+			}
+			
+			table.close();
+			assertEquals("Memory lost", NUM_MEM_PAGES, table.getFreeMemory().size());
+		}
+		catch (Exception e) {
+			e.printStackTrace();
+			fail("Error: " + e.getMessage());
+		}
+	}
+	
+	@Test
+	public void testResizeWithCompaction(){
+		fail("not yet implemented!");
+	}
+	
+	@Test
 	public void testVariableLengthStringBuildAndRetrieve() {
 		
 		try {
@@ -358,13 +405,6 @@ public class MemoryHashTableTest {
 
 			MutableObjectIterator<StringPair> updateTester = new UniformStringPairGenerator(NUM_PAIRS, 1, false);
 			
-			//long start = 0L;
-			//long end = 0L;
-			
-			//long first = System.currentTimeMillis();
-			
-			//System.out.println("Creating and filling CompactingHashMap...");
-			//start = System.currentTimeMillis();
 			AbstractMutableHashTable<StringPair> table = new CompactingHashTable<StringPair>(serializerS, comparatorS, getMemory(NUM_MEM_PAGES, PAGE_SIZE));
 			table.open();
 			
@@ -372,11 +412,6 @@ public class MemoryHashTableTest {
 			while(buildInput.next(target) != null) {
 				table.insert(target);
 			}
-			//end = System.currentTimeMillis();
-			//System.out.println("HashMap ready. Time: " + (end-start) + " ms");
-			
-			//System.out.println("Starting first probing run...");
-			//start = System.currentTimeMillis();
 
 			AbstractHashTableProber<StringPair, StringPair> prober = table.getProber(comparatorS, pairComparatorS);
 			StringPair temp = new StringPair();
@@ -384,31 +419,18 @@ public class MemoryHashTableTest {
 				assertTrue(prober.getMatchFor(target, temp));
 				assertEquals(temp.getValue(), target.getValue());
 			}
-			//end = System.currentTimeMillis();
-			//System.out.println("Probing done. Time: " + (end-start) + " ms");
 			
-			//System.out.println("Starting update...");
-			//start = System.currentTimeMillis();
 			while(updater.next(target) != null) {
 				target.setValue(target.getValue());
 				table.insertOrReplaceRecord(target, temp);
 			}
-			//end = System.currentTimeMillis();
-			//System.out.println("Update done. Time: " + (end-start) + " ms");
 			
-			//System.out.println("Starting second probing run...");
-			//start = System.currentTimeMillis();
 			while (updateTester.next(target) != null) {
 				assertTrue(prober.getMatchFor(target, temp));
 				assertEquals(target.getValue(), temp.getValue());
 			}
-			//end = System.currentTimeMillis();
-			//System.out.println("Probing done. Time: " + (end-start) + " ms");
 			
 			table.close();
-			
-			//end = System.currentTimeMillis();
-			//System.out.println("Overall time: " + (end-first) + " ms");
 			
 			assertEquals("Memory lost", NUM_MEM_PAGES, table.getFreeMemory().size());
 		}

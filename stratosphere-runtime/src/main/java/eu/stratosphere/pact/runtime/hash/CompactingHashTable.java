@@ -13,7 +13,6 @@
 
 package eu.stratosphere.pact.runtime.hash;
 
-
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -22,6 +21,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 
 import eu.stratosphere.api.common.typeutils.TypeComparator;
 import eu.stratosphere.api.common.typeutils.TypePairComparator;
@@ -209,6 +211,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 	 */
 	private int numBuckets;
 	
+	private boolean wasResized = false;
+	
 	private AtomicBoolean closed = new AtomicBoolean();
 	
 	private boolean running = true;
@@ -295,7 +299,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 	 * Closes the hash table. This effectively releases all internal structures and closes all
 	 * open files and removes them. The call to this method is valid both as a cleanup after the
 	 * complete inputs were properly processed, and as an cancellation call, which cleans up
-	 * all resources that are currently held by the hash join.
+	 * all resources that are currently held by the hash join. If another process still access the hash 
+	 * table after close has been called no operations will be performed.
 	 */
 	public void close() {
 		// make sure that we close only once
@@ -803,6 +808,9 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 		return Math.max(10, Math.min(numBuffers / 10, MAX_NUM_PARTITIONS));
 	}
 	
+	/**
+	 * @return number of memory segments in the largest partition
+	 */
 	private int getMaxPartition() {
 		int maxPartition = 0;
 		for(InMemoryPartition<T> p1 : this.partitions) {
@@ -813,6 +821,9 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 		return maxPartition;
 	}
 	
+	/**
+	 * @return number of memory segments in the smallest partition
+	 */
 	private int getMinPartition() {
 		int minPartition = Integer.MAX_VALUE;
 		for(InMemoryPartition<T> p1 : this.partitions) {
@@ -823,6 +834,9 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 		return minPartition;
 	}
 	
+	/**
+	 * @return number of memory segments used in overflow buckets
+	 */
 	private int getOverflowSegmentCount() {
 		int result = 0;
 		for(InMemoryPartition<T> p : this.partitions) {
@@ -853,7 +867,12 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 		final long numRecordsStorable = totalSize / (recordLenBytes + RECORD_OVERHEAD_BYTES);
 		final long bucketBytes = numRecordsStorable * RECORD_TABLE_BYTES;
 		final long numBuckets = bucketBytes / (2 * HASH_BUCKET_SIZE) + 1;
-		
+		//final int bucketsPerSegment = bufferSize >> NUM_INTRA_BUCKET_BITS;
+		// make sure all available space is used for buckets
+		// important for resizing
+		//while(numBuckets % bucketsPerSegment != 0) {
+		//	numBuckets++;
+		//}
 		return numBuckets > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) numBuckets;
 	}
 	
@@ -869,14 +888,216 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 	}
 	
 	/**
+	 * FOR TESTING ONLY
+	 */
+	public boolean triggerResize() throws IOException {
+		return resizeHashTable();
+	}
+	
+	/**
+	 * Attempts to double the number of buckets
+	 * 
+	 * @return true on success
+	 * @throws IOException 
+	 */
+	private boolean resizeHashTable() throws IOException {
+		int newNumBuckets = 2*this.numBuckets;
+		int newNumSegments = (newNumBuckets * HASH_BUCKET_SIZE) / this.segmentSize;
+		int additionalSegments = newNumSegments-this.buckets.length;
+		if(this.availableMemory.size() < additionalSegments) {
+			// if too few segments are available attempt compaction
+			for(int i = 0; i < this.partitions.size(); i++) {
+				compactPartition(i);
+			}
+		}
+		// at first only allow one resizing
+		if(this.availableMemory.size() < additionalSegments || this.closed.get() || this.wasResized) {
+			return false;
+		} else {
+			final int numPartitions = this.partitions.size();
+			// allocate new buckets
+			//int startSegment = this.buckets.length-1;
+			int startOffset = (this.numBuckets * HASH_BUCKET_SIZE) % this.segmentSize;
+			MemorySegment[] newBuckets = new MemorySegment[additionalSegments];
+			int oldNumBuckets = this.numBuckets;
+			int oldNumSegments = this.buckets.length;
+			MemorySegment[] mergedBuckets = new MemorySegment[newNumSegments];
+			System.arraycopy(this.buckets, 0, mergedBuckets, 0, this.buckets.length);
+			System.arraycopy(newBuckets, 0, mergedBuckets, this.buckets.length, newBuckets.length);
+			this.buckets = mergedBuckets;
+			this.numBuckets = newNumBuckets;
+			
+			final int bucketsPerSegment = this.bucketsPerSegmentMask + 1;
+			// initialize all new buckets
+			boolean oldSegment = (startOffset != 0);
+			int startSegment = (startOffset != 0) ? (oldNumSegments-1) : oldNumSegments;
+			for (int i = startSegment, bucket = oldNumBuckets; i < newNumSegments && bucket < this.numBuckets; i++) {
+				MemorySegment seg;
+				if(oldSegment) { // the first couple of new buckets may be located on an old segment
+					seg = this.buckets[i];
+					for (int k = (oldNumBuckets % bucketsPerSegment) ; k < bucketsPerSegment && bucket < this.numBuckets; k++, bucket++) {
+						final int bucketOffset = k * HASH_BUCKET_SIZE;	
+						// initialize the header fields
+						seg.put(bucketOffset + HEADER_PARTITION_OFFSET, assignPartition(bucket, (byte)numPartitions));
+						seg.putInt(bucketOffset + HEADER_COUNT_OFFSET, 0);
+						seg.putLong(bucketOffset + HEADER_FORWARD_OFFSET, BUCKET_FORWARD_POINTER_NOT_SET);
+					}
+				} else {
+					seg = getNextBuffer();
+					// go over all buckets in the segment
+					for (int k = 0; k < bucketsPerSegment && bucket < this.numBuckets; k++, bucket++) {
+						final int bucketOffset = k * HASH_BUCKET_SIZE;	
+						// initialize the header fields
+						seg.put(bucketOffset + HEADER_PARTITION_OFFSET, assignPartition(bucket, (byte)numPartitions));
+						seg.putInt(bucketOffset + HEADER_COUNT_OFFSET, 0);
+						seg.putLong(bucketOffset + HEADER_FORWARD_OFFSET, BUCKET_FORWARD_POINTER_NOT_SET);
+					}
+				}				
+				this.buckets[i] = seg;
+				oldSegment = false; // we write on at most one old segment
+			}
+			
+			int hashOffset = 0;
+			int hash = 0;
+			int pointerOffset = 0;
+			long pointer = 0;
+			IntArrayList hashList = new IntArrayList(NUM_ENTRIES_PER_BUCKET);
+			LongArrayList pointerList = new LongArrayList(NUM_ENTRIES_PER_BUCKET);
+			IntArrayList overflowHashes = new IntArrayList(64);
+			LongArrayList overflowPointers = new LongArrayList(64);
+			// go over all buckets and split them between old and new buckets
+			for(int i = 0; i < numPartitions; i++) {
+				InMemoryPartition<T> partition = this.partitions.get(i);
+				for (int j = 0, bucket = i; j < this.buckets.length && bucket < oldNumBuckets; j++) {
+					MemorySegment segment = this.buckets[j];
+					// go over all buckets in the segment belonging to the partition
+					for (int k = bucket % bucketsPerSegment; k < bucketsPerSegment && bucket < oldNumBuckets; k += numPartitions, bucket += numPartitions) {
+						int bucketOffset = k * HASH_BUCKET_SIZE;
+						if((int)segment.get(bucketOffset + HEADER_PARTITION_OFFSET) != i) {
+							throw new IOException("Accessed wrong bucket! wanted: " + i + " got: " + segment.get(bucketOffset + HEADER_PARTITION_OFFSET));
+						}
+						int count = segment.getInt(bucketOffset + HEADER_COUNT_OFFSET);
+						for (int l = 0; l < NUM_ENTRIES_PER_BUCKET && l < count; l++) {
+							hashOffset = bucketOffset + BUCKET_HEADER_LENGTH + (l * HASH_CODE_LEN);
+							hash = segment.getInt(hashOffset);
+							pointerOffset = bucketOffset + BUCKET_POINTER_START_OFFSET + (l * POINTER_LEN);
+							pointer = segment.getLong(pointerOffset);
+							hashList.add(hash);
+							pointerList.add(pointer);
+						}
+						long overflowPointer = segment.getLong(bucketOffset + HEADER_FORWARD_OFFSET);
+						if(overflowPointer != BUCKET_FORWARD_POINTER_NOT_SET) {
+							// scan overflow buckets
+							int current = NUM_ENTRIES_PER_BUCKET;
+							bucketOffset = (int) (overflowPointer & 0xffffffff);
+							hashOffset = ((int) (overflowPointer & 0xffffffff)) + BUCKET_HEADER_LENGTH;
+							pointerOffset = ((int) (overflowPointer & 0xffffffff)) + BUCKET_POINTER_START_OFFSET;
+							int overflowSegNum = (int) (overflowPointer >>> 32);
+							count += partition.overflowSegments[overflowSegNum].getInt(bucketOffset + HEADER_COUNT_OFFSET);
+							while(current < count) {
+								hash = partition.overflowSegments[overflowSegNum].getInt(hashOffset);
+								pointer = partition.overflowSegments[overflowSegNum].getLong(pointerOffset);
+								hashList.add(hash);
+								pointerList.add(pointer);
+								current++;
+								if(current % NUM_ENTRIES_PER_BUCKET == 0) {
+									count += partition.overflowSegments[overflowSegNum].getInt(bucketOffset + HEADER_COUNT_OFFSET);
+									overflowPointer = partition.overflowSegments[overflowSegNum].getLong(bucketOffset + HEADER_FORWARD_OFFSET);
+									if(overflowPointer == BUCKET_FORWARD_POINTER_NOT_SET) {
+										break;
+									}
+									overflowSegNum = (int) (overflowPointer >>> 32);
+									bucketOffset = (int) (overflowPointer & 0xffffffff);
+									hashOffset = ((int) (overflowPointer & 0xffffffff)) + BUCKET_HEADER_LENGTH;
+									pointerOffset = ((int) (overflowPointer & 0xffffffff)) + BUCKET_POINTER_START_OFFSET;
+								} else {
+									hashOffset += HASH_CODE_LEN;
+									pointerOffset += POINTER_LEN;
+								}
+							}
+						}
+						bucketOffset = k * HASH_BUCKET_SIZE;
+						segment.putInt(bucketOffset + HEADER_COUNT_OFFSET, 0); // reset bucket count for re-insertion
+						// refill table
+						if(hashList.size() != pointerList.size()) {
+							throw new IOException("Pointer and hash counts do not match. hashes: " + hashList.size() + " pointer: " + pointerList.size());
+						}
+						//int oldBucketSegmentIndex = j;
+						MemorySegment newSegment = this.buckets[j + additionalSegments];
+						if(hashList.size() <= NUM_ENTRIES_PER_BUCKET) {
+							// we can just insert using standard functions
+							while(!hashList.isEmpty()) {
+								hash = hashList.removeInt(hashList.size()-1);
+								pointer = pointerList.removeLong(pointerList.size()-1);
+								int posHashCode = hash % this.numBuckets;
+								if(posHashCode == bucket) {
+									insertBucketEntryFromStart(partition, segment, bucketOffset, hash, pointer);
+								} else if(posHashCode == (bucket + oldNumBuckets)){
+									insertBucketEntryFromStart(partition, newSegment, bucketOffset, hash, pointer);
+								} else {
+									throw new IOException("Accessed wrong bucket. Target: " + bucket + " or " + (bucket + oldNumBuckets) + " Hit: " + posHashCode);
+								}
+							}
+						} else {
+							// we need to watch out for overflows
+							int oldBucketCount = 0;
+							int newBucketCount = 0;
+							while(!hashList.isEmpty()) {
+								hash = hashList.removeInt(hashList.size()-1);
+								pointer = pointerList.removeLong(pointerList.size()-1);
+								int posHashCode = hash % this.numBuckets;
+								if(posHashCode == bucket && oldBucketCount < NUM_ENTRIES_PER_BUCKET) {
+									insertBucketEntryFromStart(partition, segment, bucketOffset, hash, pointer);
+									oldBucketCount++;
+								} else if(posHashCode == (bucket + oldNumBuckets) && newBucketCount < NUM_ENTRIES_PER_BUCKET) {
+									insertBucketEntryFromStart(partition, newSegment, bucketOffset, hash, pointer);
+									newBucketCount++;
+								} else if(posHashCode == (bucket + oldNumBuckets) || posHashCode == bucket) {
+									overflowHashes.add(hash);
+									overflowPointers.add(pointer);
+								} else {
+									throw new IOException("Accessed wrong bucket. Target: " + bucket + " or " + (bucket + oldNumBuckets) + " Hit: " + posHashCode);
+								}
+							}
+						}
+						hashList.clear();
+						pointerList.clear();
+					}
+				}
+				// reset partition's overflow buckets and reclaim their memory
+				this.availableMemory.addAll(partition.resetOverflowBuckets());
+				// clear overflow lists
+				// get the bucket for the given hash code
+				int posHashCode = 0;
+				int bucketArrayPos = 0;
+				int bucketInSegmentPos = 0;
+				MemorySegment bucket = null;
+				while(!overflowHashes.isEmpty()) {
+					hash = overflowHashes.removeInt(overflowHashes.size()-1);
+					pointer = overflowPointers.removeLong(overflowPointers.size()-1);
+					posHashCode = hash % this.numBuckets; 
+					bucketArrayPos = posHashCode >>> this.bucketsPerSegmentBits;
+					bucketInSegmentPos = (posHashCode & this.bucketsPerSegmentMask) << NUM_INTRA_BUCKET_BITS;
+					bucket = this.buckets[bucketArrayPos];
+					insertBucketEntryFromStart(partition, bucket, bucketInSegmentPos, hash, pointer);
+				}
+				overflowHashes.clear();
+				overflowPointers.clear();
+			}
+			this.wasResized = true;
+			return true;
+		}
+	}
+	
+	/**
 	 * Compacts (garbage collects) partition with copy-compact strategy using compaction partition
 	 * 
-	 * @param partition partition number
+	 * @param partitionNumber partition to compact
 	 * @throws IOException 
 	 */
 	private void compactPartition(int partitionNumber) throws IOException {
-		// stop if no garbage exists or table is closed
-		if(this.partitions.get(partitionNumber).isCompacted() || this.closed.get()) {
+		// do nothing if table was closed, parameter is invalid or no garbage exists
+		if(this.closed.get() || partitionNumber >= this.partitions.size() || this.partitions.get(partitionNumber).isCompacted()) {
 			return;
 		}
 		// release all segments owned by compaction partition
@@ -1038,6 +1259,12 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 			}
 		}
 
+		/**
+		 * utility function that inserts all entries from a bucket and its overflow buckets into the cache
+		 * 
+		 * @return true if last bucket was not reached yet
+		 * @throws IOException
+		 */
 		private boolean fillCache() throws IOException {
 			if(currentBucketIndex >= table.numBuckets) {
 				return false;

@@ -142,6 +142,25 @@ public class InMemoryPartition<T> {
 	}
 	
 	/**
+	 * resets overflow bucket counters and returns freed memory and should only be used for resizing
+	 * 
+	 * @return freed memory segments
+	 */
+	public ArrayList<MemorySegment> resetOverflowBuckets() {
+		this.numOverflowSegments = 0;
+		this.nextOverflowBucket = 0;
+		
+		ArrayList<MemorySegment> result = new ArrayList<MemorySegment>();
+		for(int i = 0; i < this.overflowSegments.length; i++) {
+			if(this.overflowSegments[i] != null) {
+				result.add(this.overflowSegments[i]);
+			}
+		}
+		this.overflowSegments = new MemorySegment[2];
+		return result;
+	}
+	
+	/**
 	 * @return true if garbage exists in partition
 	 */
 	public boolean isCompacted() {
