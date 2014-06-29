@@ -150,7 +150,7 @@ public class InMemoryPartition<T> {
 		this.numOverflowSegments = 0;
 		this.nextOverflowBucket = 0;
 		
-		ArrayList<MemorySegment> result = new ArrayList<MemorySegment>();
+		ArrayList<MemorySegment> result = new ArrayList<MemorySegment>(this.overflowSegments.length);
 		for(int i = 0; i < this.overflowSegments.length; i++) {
 			if(this.overflowSegments[i] != null) {
 				result.add(this.overflowSegments[i]);

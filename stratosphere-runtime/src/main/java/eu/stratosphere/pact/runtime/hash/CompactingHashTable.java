@@ -48,8 +48,8 @@ import eu.stratosphere.util.MutableObjectIterator;
  * 
  * <pre>
  * +----------------------------- Bucket x ----------------------------
- * |Partition (1 byte) | Status (1 byte) | element count (2 bytes) |
- * | next-bucket-in-chain-pointer (8 bytes) | reserved (4 bytes) |
+ * |Partition (1 byte) | reserved (3 bytes) | element count (4 bytes) |
+ * | next-bucket-in-chain-pointer (8 bytes) |
  * |
  * |hashCode 1 (4 bytes) | hashCode 2 (4 bytes) | hashCode 3 (4 bytes) |
  * | ... hashCode n-1 (4 bytes) | hashCode n (4 bytes)
@@ -58,8 +58,8 @@ import eu.stratosphere.util.MutableObjectIterator;
  * | ... pointer n-1 (8 bytes) | pointer n (8 bytes)
  * |
  * +---------------------------- Bucket x + 1--------------------------
- * |Partition (1 byte) | Status (1 byte) | element count (2 bytes) |
- * | next-bucket-in-chain-pointer (8 bytes) | reserved (4 bytes) |
+ * |Partition (1 byte) | reserved (3 bytes) | element count (4 bytes) |
+ * | next-bucket-in-chain-pointer (8 bytes) |
  * |
  * |hashCode 1 (4 bytes) | hashCode 2 (4 bytes) | hashCode 3 (4 bytes) |
  * | ... hashCode n-1 (4 bytes) | hashCode n (4 bytes)
@@ -118,7 +118,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 	 * actual hash table buckets, consisting of a 4 byte hash value and an 8 byte
 	 * pointer, plus the overhead for the stored length field.
 	 */
-	private static final int RECORD_OVERHEAD_BYTES = RECORD_TABLE_BYTES;
+	private static final int RECORD_OVERHEAD_BYTES = RECORD_TABLE_BYTES + 2;
 	
 	// -------------------------- Bucket Size and Structure -------------------------------------
 	
@@ -128,7 +128,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 	
 	private static final int BUCKET_HEADER_LENGTH = 16;
 	
-	private static final int NUM_ENTRIES_PER_BUCKET = (HASH_BUCKET_SIZE - BUCKET_HEADER_LENGTH) / RECORD_OVERHEAD_BYTES;
+	private static final int NUM_ENTRIES_PER_BUCKET = (HASH_BUCKET_SIZE - BUCKET_HEADER_LENGTH) / RECORD_TABLE_BYTES;
 	
 	private static final int BUCKET_POINTER_START_OFFSET = BUCKET_HEADER_LENGTH + (NUM_ENTRIES_PER_BUCKET * HASH_CODE_LEN);
 	
@@ -211,7 +211,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 	 */
 	private int numBuckets;
 	
-	private boolean wasResized = false;
+	//private boolean wasResized = false;
 	
 	private AtomicBoolean closed = new AtomicBoolean();
 	
@@ -236,7 +236,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 			throw new NullPointerException();
 		}
 		if (memorySegments.size() < MIN_NUM_MEMORY_SEGMENTS) {
-			throw new IllegalArgumentException("Too few memory segments provided. Hash Join needs at least " + 
+			throw new IllegalArgumentException("Too few memory segments provided. Hash Table needs at least " + 
 				MIN_NUM_MEMORY_SEGMENTS + " memory segments.");
 		}
 		
@@ -375,6 +375,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 						" maxPartition: " + getMaxPartition() +
 						" number of overflow segments: " + getOverflowSegmentCount() +
 						" bucketSize: " + this.buckets.length +
+						" Overall memory: " + getSize() + 
+						" Partition memory: " + getPartitionSize() +
 						" Message: " + ex.getMessage());
 			} catch (IndexOutOfBoundsException ex) {
 				throw new RuntimeException("Memory ran out. Compaction failed. numPartitions: " + this.partitions.size() + 
@@ -382,6 +384,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 						" maxPartition: " + getMaxPartition() +
 						" number of overflow segments: " + getOverflowSegmentCount() +
 						" bucketSize: " + this.buckets.length +
+						" Overall memory: " + getSize() + 
+						" Partition memory: " + getPartitionSize() +
 						" Message: " + ex.getMessage());
 			}
 		} catch (IndexOutOfBoundsException e1) {
@@ -395,6 +399,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 						" maxPartition: " + getMaxPartition() +
 						" number of overflow segments: " + getOverflowSegmentCount() +
 						" bucketSize: " + this.buckets.length +
+						" Overall memory: " + getSize() + 
+						" Partition memory: " + getPartitionSize() +
 						" Message: " + ex.getMessage());
 			} catch (IndexOutOfBoundsException ex) {
 				throw new RuntimeException("Memory ran out. Compaction failed. numPartitions: " + this.partitions.size() + 
@@ -402,6 +408,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 						" maxPartition: " + getMaxPartition() +
 						" number of overflow segments: " + getOverflowSegmentCount() +
 						" bucketSize: " + this.buckets.length +
+						" Overall memory: " + getSize() + 
+						" Partition memory: " + getPartitionSize() +
 						" Message: " + ex.getMessage());
 			}
 		}
@@ -497,6 +505,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 									" maxPartition: " + getMaxPartition() +
 									" number of overflow segments: " + getOverflowSegmentCount() +
 									" bucketSize: " + this.buckets.length +
+									" Overall memory: " + getSize() + 
+									" Partition memory: " + getPartitionSize() +
 									" Message: " + ex.getMessage());
 						} catch (IndexOutOfBoundsException ex) {
 							throw new RuntimeException("Memory ran out. Compaction failed. numPartitions: " + this.partitions.size() + 
@@ -504,6 +514,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 									" maxPartition: " + getMaxPartition() +
 									" number of overflow segments: " + getOverflowSegmentCount() +
 									" bucketSize: " + this.buckets.length +
+									" Overall memory: " + getSize() + 
+									" Partition memory: " + getPartitionSize() +
 									" Message: " + ex.getMessage());
 						}
 						bucket.putLong(pointerOffset, newPointer);
@@ -521,6 +533,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 									" maxPartition: " + getMaxPartition() +
 									" number of overflow segments: " + getOverflowSegmentCount() +
 									" bucketSize: " + this.buckets.length +
+									" Overall memory: " + getSize() + 
+									" Partition memory: " + getPartitionSize() +
 									" Message: " + ex.getMessage());
 						} catch (IndexOutOfBoundsException ex) {
 							throw new RuntimeException("Memory ran out. Compaction failed. numPartitions: " + this.partitions.size() + 
@@ -528,6 +542,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 									" maxPartition: " + getMaxPartition() +
 									" number of overflow segments: " + getOverflowSegmentCount() +
 									" bucketSize: " + this.buckets.length +
+									" Overall memory: " + getSize() + 
+									" Partition memory: " + getPartitionSize() +
 									" Message: " + ex.getMessage());
 						}
 						bucket.putLong(pointerOffset, newPointer);
@@ -567,6 +583,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 			int bucketInSegmentPos, int hashCode, long pointer)
 	throws IOException
 	{
+		boolean checkForResize = false;
 		// find the position to put the hash code and pointer
 		final int count = bucket.getInt(bucketInSegmentPos + HEADER_COUNT_OFFSET);
 		if (count < NUM_ENTRIES_PER_BUCKET) {
@@ -574,8 +591,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 			bucket.putInt(bucketInSegmentPos + BUCKET_HEADER_LENGTH + (count * HASH_CODE_LEN), hashCode);	// hash code
 			bucket.putLong(bucketInSegmentPos + BUCKET_POINTER_START_OFFSET + (count * POINTER_LEN), pointer); // pointer
 			bucket.putInt(bucketInSegmentPos + HEADER_COUNT_OFFSET, count + 1); // update count
-		}
-		else {
+		} else {
 			// we need to go to the overflow buckets
 			final long originalForwardPointer = bucket.getLong(bucketInSegmentPos + HEADER_FORWARD_OFFSET);
 			final long forwardForNewBucket;
@@ -596,14 +612,12 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 					seg.putLong(segOffset + BUCKET_POINTER_START_OFFSET + (obCount * POINTER_LEN), pointer); // pointer
 					seg.putInt(segOffset + HEADER_COUNT_OFFSET, obCount + 1); // update count
 					return;
-				}
-				else {
+				} else {
 					// no space here, we need a new bucket. this current overflow bucket will be the
 					// target of the new overflow bucket
 					forwardForNewBucket = originalForwardPointer;
 				}
-			}
-			else {
+			} else {
 				// no overflow bucket yet, so we need a first one
 				forwardForNewBucket = BUCKET_FORWARD_POINTER_NOT_SET;
 			}
@@ -628,8 +642,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 				}
 				p.overflowSegments[p.numOverflowSegments] = overflowSeg;
 				p.numOverflowSegments++;
-			}
-			else {
+				checkForResize = true;
+			} else {
 				// there is space in the last overflow bucket
 				overflowBucketNum = p.numOverflowSegments - 1;
 				overflowSeg = p.overflowSegments[overflowBucketNum];
@@ -653,17 +667,23 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 			
 			// set the count to one
 			overflowSeg.putInt(overflowBucketOffset + HEADER_COUNT_OFFSET, 1); 
+			if(checkForResize) {
+				// check if we should resize buckets
+				if(this.buckets.length <= getOverflowSegmentCount()) {
+					this.resizeHashTable();
+				}
+			}
 		}
 	}
 	
-	private final void insertBucketEntryFromSearch(InMemoryPartition<T> partition, MemorySegment originalBucket, MemorySegment currentBucket, int originalBucketOffset, int currentBucketOffset, int countInCurrentBucket, long currentForwardPointer, int hashCode, long pointer) {
+	private final void insertBucketEntryFromSearch(InMemoryPartition<T> partition, MemorySegment originalBucket, MemorySegment currentBucket, int originalBucketOffset, int currentBucketOffset, int countInCurrentBucket, long currentForwardPointer, int hashCode, long pointer) throws IOException {
+		boolean checkForResize = false;
 		if (countInCurrentBucket < NUM_ENTRIES_PER_BUCKET) {
 			// we are good in our current bucket, put the values
 			currentBucket.putInt(currentBucketOffset + BUCKET_HEADER_LENGTH + (countInCurrentBucket * HASH_CODE_LEN), hashCode);	// hash code
 			currentBucket.putLong(currentBucketOffset + BUCKET_POINTER_START_OFFSET + (countInCurrentBucket * POINTER_LEN), pointer); // pointer
 			currentBucket.putInt(currentBucketOffset + HEADER_COUNT_OFFSET, countInCurrentBucket + 1); // update count
-		}
-		else {
+		} else {
 			// we need a new overflow bucket
 			MemorySegment overflowSeg;
 			final int overflowBucketNum;
@@ -684,8 +704,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 				}
 				partition.overflowSegments[partition.numOverflowSegments] = overflowSeg;
 				partition.numOverflowSegments++;
-			}
-			else {
+				checkForResize = true;
+			} else {
 				// there is space in the last overflow segment
 				overflowBucketNum = partition.numOverflowSegments - 1;
 				overflowSeg = partition.overflowSegments[overflowBucketNum];
@@ -708,7 +728,13 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 			overflowSeg.putLong(overflowBucketOffset + BUCKET_POINTER_START_OFFSET, pointer); // pointer
 			
 			// set the count to one
-			overflowSeg.putInt(overflowBucketOffset + HEADER_COUNT_OFFSET, 1); 
+			overflowSeg.putInt(overflowBucketOffset + HEADER_COUNT_OFFSET, 1);
+			if(checkForResize) {
+				// check if we should resize buckets
+				if(this.buckets.length <= getOverflowSegmentCount()) {
+					this.resizeHashTable();
+				}
+			}
 		}
 	}
 	
@@ -786,7 +812,9 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 													" minPartition: " + getMinPartition() +
 													" maxPartition: " + getMaxPartition() + 
 													" number of overflow segments: " + getOverflowSegmentCount() +
-													" bucketSize: " + this.buckets.length);
+													" bucketSize: " + this.buckets.length +
+													" Overall memory: " + getSize() + 
+													" Partition memory: " + getPartitionSize());
 		}
 	}
 
@@ -798,7 +826,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 	 * Gets the number of partitions to be used for an initial hash-table, when no estimates are
 	 * available.
 	 * <p>
-	 * The current logic makes sure that there are always between 10 and 127 partitions, and close
+	 * The current logic makes sure that there are always between 10 and 32 partitions, and close
 	 * to 0.1 of the number of buffers.
 	 * 
 	 * @param numBuffers The number of buffers available.
@@ -806,6 +834,36 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 	 */
 	private static final int getPartitioningFanOutNoEstimates(int numBuffers) {
 		return Math.max(10, Math.min(numBuffers / 10, MAX_NUM_PARTITIONS));
+	}
+	
+	/**
+	 * Size of all memory segments owned by this hash table
+	 * 
+	 * @return size in bytes
+	 */
+	private int getSize() {
+		int numSegments = 0;
+		numSegments += this.availableMemory.size();
+		numSegments += this.buckets.length;
+		for(InMemoryPartition<T> p : this.partitions) {
+			numSegments += p.getBlockCount();
+			numSegments += p.numOverflowSegments;
+		}
+		numSegments += this.compactionMemory.getBlockCount();
+		return numSegments*this.segmentSize;
+	}
+	
+	/**
+	 * Size of all memory segments owned by the partitions of this hash table excluding the compaction partition
+	 * 
+	 * @return size in bytes
+	 */
+	private int getPartitionSize() {
+		int numSegments = 0;
+		for(InMemoryPartition<T> p : this.partitions) {
+			numSegments += p.getBlockCount();
+		}
+		return numSegments*this.segmentSize;
 	}
 	
 	/**
@@ -845,34 +903,20 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 		return result;
 	}
 	
+	/**
+	 * tries to find a good value for the number of buckets
+	 * will ensure that the number of buckets is a multiple of numPartitions
+	 * 
+	 * @return number of buckets
+	 */
 	private static final int getInitialTableSize(int numBuffers, int bufferSize, int numPartitions, int recordLenBytes) {
-		// ----------------------------------------------------------------------------------------
-		// the following observations hold:
-		// 1) If the records are assumed to be very large, then many buffers need to go to the partitions
-		//    and fewer to the table
-		// 2) If the records are small, then comparatively many have to go to the buckets, and fewer to the
-		//    partitions
-		// 3) If the bucket-table is chosen too small, we will eventually get many collisions and will grow the
-		//    hash table, incrementally adding buffers.
-		// 4) If the bucket-table is chosen to be large and we actually need more buffers for the partitions, we
-		//    cannot subtract them afterwards from the table
-		//
-		// ==> We start with a comparatively small hash-table. We aim for a 200% utilization of the bucket table
-		//     when all the partition buffers are full. Most likely, that will cause some buckets to be re-hashed
-		//     and grab additional buffers away from the partitions.
-		// NOTE: This decision may be subject to changes after conclusive experiments!
-		// ----------------------------------------------------------------------------------------
-		
 		final long totalSize = ((long) bufferSize) * numBuffers;
 		final long numRecordsStorable = totalSize / (recordLenBytes + RECORD_OVERHEAD_BYTES);
-		final long bucketBytes = numRecordsStorable * RECORD_TABLE_BYTES;
-		final long numBuckets = bucketBytes / (2 * HASH_BUCKET_SIZE) + 1;
-		//final int bucketsPerSegment = bufferSize >> NUM_INTRA_BUCKET_BITS;
-		// make sure all available space is used for buckets
-		// important for resizing
-		//while(numBuckets % bucketsPerSegment != 0) {
-		//	numBuckets++;
-		//}
+		final long bucketBytes = numRecordsStorable * RECORD_OVERHEAD_BYTES;
+		long numBuckets = bucketBytes / (2 * HASH_BUCKET_SIZE) + 1;
+		while(numBuckets % numPartitions != 0) {
+			numBuckets++;
+		}
 		return numBuckets > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) numBuckets;
 	}
 	
@@ -890,6 +934,15 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 	/**
 	 * FOR TESTING ONLY
 	 */
+	public void triggerFullCompaction() throws IOException {
+		for(int i = 0; i < this.partitions.size(); i++) {
+			compactPartition(i);
+		}
+	}
+	
+	/**
+	 * FOR TESTING ONLY
+	 */
 	public boolean triggerResize() throws IOException {
 		return resizeHashTable();
 	}
@@ -901,9 +954,10 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 	 * @throws IOException 
 	 */
 	private boolean resizeHashTable() throws IOException {
-		int newNumBuckets = 2*this.numBuckets;
-		int newNumSegments = (newNumBuckets * HASH_BUCKET_SIZE) / this.segmentSize;
-		int additionalSegments = newNumSegments-this.buckets.length;
+		final int newNumBuckets = 2*this.numBuckets;
+		final int bucketsPerSegment = this.bucketsPerSegmentMask + 1;
+		final int newNumSegments = (newNumBuckets + (bucketsPerSegment-1)) / bucketsPerSegment;
+		final int additionalSegments = newNumSegments-this.buckets.length;
 		if(this.availableMemory.size() < additionalSegments) {
 			// if too few segments are available attempt compaction
 			for(int i = 0; i < this.partitions.size(); i++) {
@@ -911,12 +965,11 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 			}
 		}
 		// at first only allow one resizing
-		if(this.availableMemory.size() < additionalSegments || this.closed.get() || this.wasResized) {
+		if(this.availableMemory.size() < additionalSegments || this.closed.get()) {
 			return false;
 		} else {
 			final int numPartitions = this.partitions.size();
 			// allocate new buckets
-			//int startSegment = this.buckets.length-1;
 			int startOffset = (this.numBuckets * HASH_BUCKET_SIZE) % this.segmentSize;
 			MemorySegment[] newBuckets = new MemorySegment[additionalSegments];
 			int oldNumBuckets = this.numBuckets;
@@ -926,17 +979,16 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 			System.arraycopy(newBuckets, 0, mergedBuckets, this.buckets.length, newBuckets.length);
 			this.buckets = mergedBuckets;
 			this.numBuckets = newNumBuckets;
-			
-			final int bucketsPerSegment = this.bucketsPerSegmentMask + 1;
 			// initialize all new buckets
 			boolean oldSegment = (startOffset != 0);
 			int startSegment = (startOffset != 0) ? (oldNumSegments-1) : oldNumSegments;
 			for (int i = startSegment, bucket = oldNumBuckets; i < newNumSegments && bucket < this.numBuckets; i++) {
 				MemorySegment seg;
+				int bucketOffset = 0;
 				if(oldSegment) { // the first couple of new buckets may be located on an old segment
 					seg = this.buckets[i];
 					for (int k = (oldNumBuckets % bucketsPerSegment) ; k < bucketsPerSegment && bucket < this.numBuckets; k++, bucket++) {
-						final int bucketOffset = k * HASH_BUCKET_SIZE;	
+						bucketOffset = k * HASH_BUCKET_SIZE;	
 						// initialize the header fields
 						seg.put(bucketOffset + HEADER_PARTITION_OFFSET, assignPartition(bucket, (byte)numPartitions));
 						seg.putInt(bucketOffset + HEADER_COUNT_OFFSET, 0);
@@ -946,7 +998,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 					seg = getNextBuffer();
 					// go over all buckets in the segment
 					for (int k = 0; k < bucketsPerSegment && bucket < this.numBuckets; k++, bucket++) {
-						final int bucketOffset = k * HASH_BUCKET_SIZE;	
+						bucketOffset = k * HASH_BUCKET_SIZE;	
 						// initialize the header fields
 						seg.put(bucketOffset + HEADER_PARTITION_OFFSET, assignPartition(bucket, (byte)numPartitions));
 						seg.putInt(bucketOffset + HEADER_COUNT_OFFSET, 0);
@@ -956,7 +1008,6 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 				this.buckets[i] = seg;
 				oldSegment = false; // we write on at most one old segment
 			}
-			
 			int hashOffset = 0;
 			int hash = 0;
 			int pointerOffset = 0;
@@ -968,6 +1019,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 			// go over all buckets and split them between old and new buckets
 			for(int i = 0; i < numPartitions; i++) {
 				InMemoryPartition<T> partition = this.partitions.get(i);
+				final MemorySegment[] overflowSegments = partition.overflowSegments;
 				for (int j = 0, bucket = i; j < this.buckets.length && bucket < oldNumBuckets; j++) {
 					MemorySegment segment = this.buckets[j];
 					// go over all buckets in the segment belonging to the partition
@@ -976,88 +1028,65 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 						if((int)segment.get(bucketOffset + HEADER_PARTITION_OFFSET) != i) {
 							throw new IOException("Accessed wrong bucket! wanted: " + i + " got: " + segment.get(bucketOffset + HEADER_PARTITION_OFFSET));
 						}
-						int count = segment.getInt(bucketOffset + HEADER_COUNT_OFFSET);
-						for (int l = 0; l < NUM_ENTRIES_PER_BUCKET && l < count; l++) {
-							hashOffset = bucketOffset + BUCKET_HEADER_LENGTH + (l * HASH_CODE_LEN);
-							hash = segment.getInt(hashOffset);
-							pointerOffset = bucketOffset + BUCKET_POINTER_START_OFFSET + (l * POINTER_LEN);
-							pointer = segment.getLong(pointerOffset);
-							hashList.add(hash);
-							pointerList.add(pointer);
-						}
-						long overflowPointer = segment.getLong(bucketOffset + HEADER_FORWARD_OFFSET);
-						if(overflowPointer != BUCKET_FORWARD_POINTER_NOT_SET) {
-							// scan overflow buckets
-							int current = NUM_ENTRIES_PER_BUCKET;
-							bucketOffset = (int) (overflowPointer & 0xffffffff);
-							hashOffset = ((int) (overflowPointer & 0xffffffff)) + BUCKET_HEADER_LENGTH;
-							pointerOffset = ((int) (overflowPointer & 0xffffffff)) + BUCKET_POINTER_START_OFFSET;
-							int overflowSegNum = (int) (overflowPointer >>> 32);
-							count += partition.overflowSegments[overflowSegNum].getInt(bucketOffset + HEADER_COUNT_OFFSET);
-							while(current < count) {
-								hash = partition.overflowSegments[overflowSegNum].getInt(hashOffset);
-								pointer = partition.overflowSegments[overflowSegNum].getLong(pointerOffset);
+						// loop over all segments that are involved in the bucket (original bucket plus overflow buckets)
+						int countInSegment = segment.getInt(bucketOffset + HEADER_COUNT_OFFSET);
+						int numInSegment = 0;
+						pointerOffset = bucketOffset + BUCKET_POINTER_START_OFFSET;
+						hashOffset = bucketOffset + BUCKET_HEADER_LENGTH;
+						while (true) {
+							while (numInSegment < countInSegment) {
+								hash = segment.getInt(hashOffset);
+								pointer = segment.getLong(pointerOffset);
 								hashList.add(hash);
 								pointerList.add(pointer);
-								current++;
-								if(current % NUM_ENTRIES_PER_BUCKET == 0) {
-									count += partition.overflowSegments[overflowSegNum].getInt(bucketOffset + HEADER_COUNT_OFFSET);
-									overflowPointer = partition.overflowSegments[overflowSegNum].getLong(bucketOffset + HEADER_FORWARD_OFFSET);
-									if(overflowPointer == BUCKET_FORWARD_POINTER_NOT_SET) {
-										break;
-									}
-									overflowSegNum = (int) (overflowPointer >>> 32);
-									bucketOffset = (int) (overflowPointer & 0xffffffff);
-									hashOffset = ((int) (overflowPointer & 0xffffffff)) + BUCKET_HEADER_LENGTH;
-									pointerOffset = ((int) (overflowPointer & 0xffffffff)) + BUCKET_POINTER_START_OFFSET;
-								} else {
-									hashOffset += HASH_CODE_LEN;
-									pointerOffset += POINTER_LEN;
-								}
+								pointerOffset += POINTER_LEN;
+								hashOffset += HASH_CODE_LEN;
+								numInSegment++;
 							}
+							// this segment is done. check if there is another chained bucket
+							final long forwardPointer = segment.getLong(bucketOffset + HEADER_FORWARD_OFFSET);
+							if (forwardPointer == BUCKET_FORWARD_POINTER_NOT_SET) {
+								break;
+							}
+							final int overflowSegNum = (int) (forwardPointer >>> 32);
+							segment = overflowSegments[overflowSegNum];
+							bucketOffset = (int)(forwardPointer & 0xffffffff);
+							countInSegment = segment.getInt(bucketOffset + HEADER_COUNT_OFFSET);
+							pointerOffset = bucketOffset + BUCKET_POINTER_START_OFFSET;
+							hashOffset = bucketOffset + BUCKET_HEADER_LENGTH;
+							numInSegment = 0;
 						}
+						segment = this.buckets[j];
 						bucketOffset = k * HASH_BUCKET_SIZE;
-						segment.putInt(bucketOffset + HEADER_COUNT_OFFSET, 0); // reset bucket count for re-insertion
+						// reset bucket for re-insertion
+						segment.putInt(bucketOffset + HEADER_COUNT_OFFSET, 0);
+						segment.putLong(bucketOffset + HEADER_FORWARD_OFFSET, BUCKET_FORWARD_POINTER_NOT_SET);
 						// refill table
 						if(hashList.size() != pointerList.size()) {
 							throw new IOException("Pointer and hash counts do not match. hashes: " + hashList.size() + " pointer: " + pointerList.size());
 						}
-						//int oldBucketSegmentIndex = j;
-						MemorySegment newSegment = this.buckets[j + additionalSegments];
-						if(hashList.size() <= NUM_ENTRIES_PER_BUCKET) {
-							// we can just insert using standard functions
-							while(!hashList.isEmpty()) {
-								hash = hashList.removeInt(hashList.size()-1);
-								pointer = pointerList.removeLong(pointerList.size()-1);
-								int posHashCode = hash % this.numBuckets;
-								if(posHashCode == bucket) {
-									insertBucketEntryFromStart(partition, segment, bucketOffset, hash, pointer);
-								} else if(posHashCode == (bucket + oldNumBuckets)){
-									insertBucketEntryFromStart(partition, newSegment, bucketOffset, hash, pointer);
-								} else {
-									throw new IOException("Accessed wrong bucket. Target: " + bucket + " or " + (bucket + oldNumBuckets) + " Hit: " + posHashCode);
-								}
-							}
-						} else {
-							// we need to watch out for overflows
-							int oldBucketCount = 0;
-							int newBucketCount = 0;
-							while(!hashList.isEmpty()) {
-								hash = hashList.removeInt(hashList.size()-1);
-								pointer = pointerList.removeLong(pointerList.size()-1);
-								int posHashCode = hash % this.numBuckets;
-								if(posHashCode == bucket && oldBucketCount < NUM_ENTRIES_PER_BUCKET) {
-									insertBucketEntryFromStart(partition, segment, bucketOffset, hash, pointer);
-									oldBucketCount++;
-								} else if(posHashCode == (bucket + oldNumBuckets) && newBucketCount < NUM_ENTRIES_PER_BUCKET) {
-									insertBucketEntryFromStart(partition, newSegment, bucketOffset, hash, pointer);
-									newBucketCount++;
-								} else if(posHashCode == (bucket + oldNumBuckets) || posHashCode == bucket) {
-									overflowHashes.add(hash);
-									overflowPointers.add(pointer);
-								} else {
-									throw new IOException("Accessed wrong bucket. Target: " + bucket + " or " + (bucket + oldNumBuckets) + " Hit: " + posHashCode);
-								}
+						int newSegmentIndex = (bucket + oldNumBuckets) / bucketsPerSegment;
+						MemorySegment newSegment = this.buckets[newSegmentIndex];
+						// we need to avoid overflows in the first run
+						int oldBucketCount = 0;
+						int newBucketCount = 0;
+						while(!hashList.isEmpty()) {
+							hash = hashList.removeInt(hashList.size()-1);
+							pointer = pointerList.removeLong(pointerList.size()-1);
+							int posHashCode = hash % this.numBuckets;
+							if(posHashCode == bucket && oldBucketCount < NUM_ENTRIES_PER_BUCKET) {
+								bucketOffset = (bucket % bucketsPerSegment) * HASH_BUCKET_SIZE;
+								insertBucketEntryFromStart(partition, segment, bucketOffset, hash, pointer);
+								oldBucketCount++;
+							} else if(posHashCode == (bucket + oldNumBuckets) && newBucketCount < NUM_ENTRIES_PER_BUCKET) {
+								bucketOffset = ((bucket + oldNumBuckets) % bucketsPerSegment) * HASH_BUCKET_SIZE;
+								insertBucketEntryFromStart(partition, newSegment, bucketOffset, hash, pointer);
+								newBucketCount++;
+							} else if(posHashCode == (bucket + oldNumBuckets) || posHashCode == bucket) {
+								overflowHashes.add(hash);
+								overflowPointers.add(pointer);
+							} else {
+								throw new IOException("Accessed wrong bucket. Target: " + bucket + " or " + (bucket + oldNumBuckets) + " Hit: " + posHashCode);
 							}
 						}
 						hashList.clear();
@@ -1067,7 +1096,6 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 				// reset partition's overflow buckets and reclaim their memory
 				this.availableMemory.addAll(partition.resetOverflowBuckets());
 				// clear overflow lists
-				// get the bucket for the given hash code
 				int posHashCode = 0;
 				int bucketArrayPos = 0;
 				int bucketInSegmentPos = 0;
@@ -1084,7 +1112,6 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 				overflowHashes.clear();
 				overflowPointers.clear();
 			}
-			this.wasResized = true;
 			return true;
 		}
 	}
@@ -1104,8 +1131,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 		this.compactionMemory.clearAllMemory(availableMemory);
 		this.compactionMemory.allocateSegments(1);
 		T tempHolder = this.buildSideSerializer.createInstance();
+		final int numPartitions = this.partitions.size();
 		InMemoryPartition<T> partition = this.partitions.remove(partitionNumber);
-		final int numPartitions = this.partitions.size() + 1; // dropped one earlier
 		long pointer = 0L;
 		int pointerOffset = 0;
 		int bucketOffset = 0;
@@ -1130,9 +1157,9 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 				if(overflowPointer != BUCKET_FORWARD_POINTER_NOT_SET) {
 					// scan overflow buckets
 					int current = NUM_ENTRIES_PER_BUCKET;
+					int overflowSegNum = (int) (overflowPointer >>> 32);
 					bucketOffset = (int) (overflowPointer & 0xffffffff);
 					pointerOffset = ((int) (overflowPointer & 0xffffffff)) + BUCKET_POINTER_START_OFFSET;
-					int overflowSegNum = (int) (overflowPointer >>> 32);
 					count += partition.overflowSegments[overflowSegNum].getInt(bucketOffset + HEADER_COUNT_OFFSET);
 					while(current < count) {
 						pointer = partition.overflowSegments[overflowSegNum].getLong(pointerOffset);
@@ -1141,7 +1168,6 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 						partition.overflowSegments[overflowSegNum].putLong(pointerOffset, pointer);
 						current++;
 						if(current % NUM_ENTRIES_PER_BUCKET == 0) {
-							count += partition.overflowSegments[overflowSegNum].getInt(bucketOffset + HEADER_COUNT_OFFSET);
 							overflowPointer = partition.overflowSegments[overflowSegNum].getLong(bucketOffset + HEADER_FORWARD_OFFSET);
 							if(overflowPointer == BUCKET_FORWARD_POINTER_NOT_SET) {
 								break;
@@ -1149,6 +1175,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 							overflowSegNum = (int) (overflowPointer >>> 32);
 							bucketOffset = (int) (overflowPointer & 0xffffffff);
 							pointerOffset = ((int) (overflowPointer & 0xffffffff)) + BUCKET_POINTER_START_OFFSET;
+							count += partition.overflowSegments[overflowSegNum].getInt(bucketOffset + HEADER_COUNT_OFFSET);
 						} else {
 							pointerOffset += POINTER_LEN;
 						}
