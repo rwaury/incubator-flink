@@ -145,8 +145,8 @@ public class InMemoryPartition<T> {
 	 * resets read and write views and should only be used on compaction partition
 	 */
 	public void resetIOViews() {
-		this.writeView.resetTo(0x0L);
-		this.readView.setReadPosition(0x0L);
+		this.writeView.resetTo(0L);
+		this.readView.setReadPosition(0L);
 	}
 	
 	/**
