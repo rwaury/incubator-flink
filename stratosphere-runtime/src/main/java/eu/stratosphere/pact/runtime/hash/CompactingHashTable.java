@@ -956,6 +956,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 		if(this.compactionMemory.getBlockCount() > maxSegmentNumber) {
 			this.compactionMemory.releaseSegments(maxSegmentNumber, availableMemory);
 		}
+		this.compactionMemory.resetIOViews();
 	}
 	
 	/**

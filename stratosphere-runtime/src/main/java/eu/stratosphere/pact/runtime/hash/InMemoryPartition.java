@@ -142,6 +142,14 @@ public class InMemoryPartition<T> {
 	}
 	
 	/**
+	 * resets read and write views and should only be used on compaction partition
+	 */
+	public void resetIOViews() {
+		this.readView.setReadPosition(0L);
+		this.writeView.resetTo(0L);
+	}
+	
+	/**
 	 * @return true if garbage exists in partition
 	 */
 	public boolean isCompacted() {
