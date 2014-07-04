@@ -142,6 +142,14 @@ public class InMemoryPartition<T> {
 	}
 	
 	/**
+	 * resets read and write views and should only be used on compaction partition
+	 */
+	public void resetIOViews() {
+		this.writeView.resetTo(0x0L);
+		this.readView.setReadPosition(0x0L);
+	}
+	
+	/**
 	 * resets overflow bucket counters and returns freed memory and should only be used for resizing
 	 * 
 	 * @return freed memory segments
@@ -192,8 +200,7 @@ public class InMemoryPartition<T> {
 			this.serializer.serialize(record, this.writeView);
 			this.recordCounter++;
 			return pointer;
-		}
-		catch (EOFException e) {
+		} catch (EOFException e) {
 			// we ran out of pages. 
 			// first, reset the pages and then we need to trigger a compaction
 			//int oldCurrentBuffer = 
@@ -298,6 +305,7 @@ public class InMemoryPartition<T> {
 			this.memSource = memSource;
 			this.sizeBits = pageSizeBits;
 			this.sizeMask = pageSize - 1;
+			this.segmentNumberOffset = 0;
 		}
 		
 
@@ -329,6 +337,7 @@ public class InMemoryPartition<T> {
 			return posInArray;
 		}
 		
+		@SuppressWarnings("unused")
 		public void setSegmentNumberOffset(int offset) {
 			this.segmentNumberOffset = offset;
 		}
@@ -358,6 +367,7 @@ public class InMemoryPartition<T> {
 			this.segments = segments;
 			this.segmentSizeBits = segmentSizeBits;
 			this.segmentSizeMask = segmentSize - 1;
+			this.segmentNumberOffset = 0;
 		}
 
 		@Override
@@ -383,6 +393,7 @@ public class InMemoryPartition<T> {
 			seekInput(this.segments.get(bufferNum), offset, this.segmentSizeMask + 1);
 		}
 		
+		@SuppressWarnings("unused")
 		public void setSegmentNumberOffset(int offset) {
 			this.segmentNumberOffset = offset;
 		}

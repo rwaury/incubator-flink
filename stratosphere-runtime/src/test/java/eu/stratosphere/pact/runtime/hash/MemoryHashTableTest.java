@@ -76,7 +76,7 @@ public class MemoryHashTableTest {
 	
 	private final TypePairComparator<IntPair, IntList> pairComparatorPL =new IntPairListPairComparator();
 	
-	private final int SIZE = 80; //FIXME 75 triggers serialization bug in testVariableLengthBuildAndRetrieve
+	private final int SIZE = 75; //FIXME 75 triggers serialization bug in testVariableLengthBuildAndRetrieve
 	
 	private final int NUM_PAIRS = 100000;
 
@@ -491,11 +491,13 @@ public class MemoryHashTableTest {
 	@Test
 	public void testResizeWithCompaction(){
 		try {
-			final int NUM_MEM_PAGES = (SIZE * NUM_LISTS / PAGE_SIZE) + 200;
+			final int NUM_MEM_PAGES = (SIZE * NUM_LISTS / PAGE_SIZE);
+			final int ADDITIONAL_MEM = 100;
 			
 			final IntList[] lists = getRandomizedIntLists(NUM_LISTS, rnd);
 			
-			CompactingHashTable<IntList> table = new CompactingHashTable<IntList>(serializerV, comparatorV, getMemory(NUM_MEM_PAGES, PAGE_SIZE));
+			List<MemorySegment> memory = getMemory(NUM_MEM_PAGES, PAGE_SIZE);
+			CompactingHashTable<IntList> table = new CompactingHashTable<IntList>(serializerV, comparatorV, memory);
 			table.open();
 			
 			for (int i = 0; i < NUM_LISTS; i++) {
@@ -514,7 +516,14 @@ public class MemoryHashTableTest {
 				assertArrayEquals(lists[i].getValue(), target.getValue());
 			}
 			
+			// make sure there is enough memory for resize
+			memory.addAll(getMemory(ADDITIONAL_MEM, PAGE_SIZE));
 			assertTrue(table.triggerResize());
+						
+			for (int i = 0; i < NUM_LISTS; i++) {
+				assertTrue(prober.getMatchFor(lists[i], target));
+				assertArrayEquals(lists[i].getValue(), target.getValue());
+			}
 			
 			final IntList[] overwriteLists = getRandomizedIntLists(NUM_LISTS, rnd);
 			
@@ -524,15 +533,17 @@ public class MemoryHashTableTest {
 				table.insertOrReplaceRecord(overwriteLists[i], tempHolder);
 			}
 			
-			assertTrue(table.triggerResize());
-									
+			// make sure there is enough memory for resize
+			memory.addAll(getMemory(ADDITIONAL_MEM, PAGE_SIZE));
+			assertTrue(table.triggerResize());									
+			
 			for (int i = 0; i < NUM_LISTS; i++) {
 				assertTrue(prober.getMatchFor(overwriteLists[i], target));
 				assertArrayEquals(overwriteLists[i].getValue(), target.getValue());
 			}
 			
 			table.close();
-			assertEquals("Memory lost", NUM_MEM_PAGES, table.getFreeMemory().size());
+			assertEquals("Memory lost", NUM_MEM_PAGES + 2*ADDITIONAL_MEM, table.getFreeMemory().size());
 		} catch (Exception e) {
 			e.printStackTrace();
 			fail("Error: " + e.getMessage());
