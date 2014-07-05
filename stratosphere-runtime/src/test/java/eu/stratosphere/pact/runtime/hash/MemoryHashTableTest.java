@@ -76,11 +76,13 @@ public class MemoryHashTableTest {
 	
 	private final TypePairComparator<IntPair, IntList> pairComparatorPL =new IntPairListPairComparator();
 	
-	private final int SIZE = 80; //FIXME 75 triggers serialization bug in testVariableLengthBuildAndRetrieve
+	private final int SIZE = 69;
 	
-	private final int NUM_PAIRS = 100000;
+	private final int NUM_PAIRS = 1000000;
 
-	private final int NUM_LISTS = 100000;
+	private final int NUM_LISTS = 1000000;
+	
+	private final int ADDITIONAL_MEM = 1000;
 	
 
 	private final TypeSerializer<StringPair> serializerS = new StringPairSerializer();
@@ -365,7 +367,7 @@ public class MemoryHashTableTest {
 			IntList target = new IntList();
 			
 			for (int i = 0; i < NUM_LISTS; i++) {
-				assertTrue(prober.getMatchFor(lists[i], target));
+				assertTrue(""+i,prober.getMatchFor(lists[i], target));
 				assertArrayEquals(lists[i].getValue(), target.getValue());
 				prober.updateMatch(overwriteLists[i]);
 			}
@@ -387,7 +389,6 @@ public class MemoryHashTableTest {
 	public void testResize() {
 		try {
 			final int NUM_MEM_PAGES = 30 * NUM_PAIRS / PAGE_SIZE;
-			final int ADDITIONAL_MEM = 100;
 			final IntPair[] pairs = getRandomizedIntPairs(NUM_PAIRS, rnd);
 			
 			List<MemorySegment> memory = getMemory(NUM_MEM_PAGES, PAGE_SIZE);
@@ -427,7 +428,6 @@ public class MemoryHashTableTest {
 	public void testDoubleResize() {
 		try {
 			final int NUM_MEM_PAGES = 30 * NUM_PAIRS / PAGE_SIZE;
-			final int ADDITIONAL_MEM = 100;
 			final IntPair[] pairs = getRandomizedIntPairs(NUM_PAIRS, rnd);
 			
 			List<MemorySegment> memory = getMemory(NUM_MEM_PAGES, PAGE_SIZE);
@@ -476,7 +476,6 @@ public class MemoryHashTableTest {
 	public void testTripleResize() {
 		try {
 			final int NUM_MEM_PAGES = 30 * NUM_PAIRS / PAGE_SIZE;
-			final int ADDITIONAL_MEM = 100;
 			final IntPair[] pairs = getRandomizedIntPairs(NUM_PAIRS, rnd);
 			
 			List<MemorySegment> memory = getMemory(NUM_MEM_PAGES, PAGE_SIZE);
@@ -534,7 +533,6 @@ public class MemoryHashTableTest {
 	public void testResizeWithCompaction(){
 		try {
 			final int NUM_MEM_PAGES = (SIZE * NUM_LISTS / PAGE_SIZE);
-			final int ADDITIONAL_MEM = 100;
 			
 			final IntList[] lists = getRandomizedIntLists(NUM_LISTS, rnd);
 			
@@ -575,8 +573,10 @@ public class MemoryHashTableTest {
 				table.insertOrReplaceRecord(overwriteLists[i], tempHolder);
 			}
 			
+			table.triggerFullCompaction();
+			
 			// make sure there is enough memory for resize
-			memory.addAll(getMemory(ADDITIONAL_MEM, PAGE_SIZE));
+			memory.addAll(getMemory(2*ADDITIONAL_MEM, PAGE_SIZE));
 			assertTrue(table.triggerResize());									
 			
 			for (int i = 0; i < NUM_LISTS; i++) {
@@ -585,7 +585,7 @@ public class MemoryHashTableTest {
 			}
 			
 			table.close();
-			assertEquals("Memory lost", NUM_MEM_PAGES + 2*ADDITIONAL_MEM, table.getFreeMemory().size());
+			assertEquals("Memory lost", NUM_MEM_PAGES + 3*ADDITIONAL_MEM, table.getFreeMemory().size());
 		} catch (Exception e) {
 			e.printStackTrace();
 			fail("Error: " + e.getMessage());

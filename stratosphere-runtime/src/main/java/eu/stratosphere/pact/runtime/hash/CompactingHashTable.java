@@ -937,10 +937,9 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 		final int additionalSegments = newNumSegments-this.buckets.length;
 		final int numPartitions = this.partitions.size();
 		if(this.availableMemory.size() < additionalSegments) {
-			// if too few segments are available attempt compaction
 			for(int i = 0; i < numPartitions; i++) {
 				compactPartition(i);
-				if(this.availableMemory.size() >= additionalSegments) {
+				if(this.availableMemory.size() < additionalSegments) {
 					break;
 				}
 			}
@@ -1109,12 +1108,12 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 	private void compactPartition(final int partitionNumber) throws IOException {
 		// do nothing if table was closed, parameter is invalid or no garbage exists
 		if(this.closed.get() || partitionNumber >= this.partitions.size() || this.partitions.get(partitionNumber).isCompacted()) {
-			//System.out.println("Invalid compaction! partition: " + partitionNumber + " compacted: " + this.partitions.get(partitionNumber).isCompacted());
 			return;
 		}
 		// release all segments owned by compaction partition
 		this.compactionMemory.clearAllMemory(availableMemory);
 		this.compactionMemory.allocateSegments(1);
+		this.compactionMemory.pushDownPages();
 		T tempHolder = this.buildSideSerializer.createInstance();
 		final int numPartitions = this.partitions.size();
 		InMemoryPartition<T> partition = this.partitions.remove(partitionNumber);
@@ -1206,6 +1205,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 		this.partitions.get(partitionNumber).numOverflowSegments = partition.numOverflowSegments;
 		this.partitions.get(partitionNumber).nextOverflowBucket = partition.nextOverflowBucket;
 		this.partitions.get(partitionNumber).setCompaction(true);
+		//this.partitions.get(partitionNumber).pushDownPages();
 		this.compactionMemory = partition;
 		this.compactionMemory.resetRecordCounter();
 		this.compactionMemory.setPartitionNumber(-1);
@@ -1217,6 +1217,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 		int maxSegmentNumber = this.getMaxPartition();
 		this.compactionMemory.allocateSegments(maxSegmentNumber);
 		this.compactionMemory.resetRWViews();
+		this.compactionMemory.pushDownPages();
 	}
 	
 	/**

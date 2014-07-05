@@ -51,9 +51,15 @@ public class InMemoryPartition<T> {
 	
 	private final ListMemorySegmentSource availableMemory;
 	
+	/*
 	private final WriteView writeView;
 	
 	private final ReadView readView;
+	*/
+	
+	private WriteView writeView;
+	
+	private ReadView readView;
 	
 	private long recordCounter;				// number of records in this partition including garbage
 	
@@ -62,6 +68,10 @@ public class InMemoryPartition<T> {
 	private int partitionNumber;					// the number of the partition
 	
 	private boolean compacted;						// overwritten records since allocation or last full compaction
+	
+	private int pageSize;
+	
+	private int pageSizeInBits;
 	
 	// --------------------------------------------------------------------------------------------------
 	
@@ -93,6 +103,10 @@ public class InMemoryPartition<T> {
 		this.partitionPages.add(memSource.nextSegment());
 		// empty partitions have no garbage
 		this.compacted = true;
+		
+		this.pageSize = pageSize;
+		
+		this.pageSizeInBits = pageSizeInBits;
 		
 		this.writeView = new WriteView(this.partitionPages, memSource, pageSize, pageSizeInBits);
 		this.readView = new ReadView(this.partitionPages, pageSize, pageSizeInBits);
@@ -147,6 +161,11 @@ public class InMemoryPartition<T> {
 	public void resetRWViews() {
 		this.writeView.resetTo(0L);
 		this.readView.setReadPosition(0L);
+	}
+	
+	public void pushDownPages() {
+		this.writeView = new WriteView(this.partitionPages, availableMemory, pageSize, pageSizeInBits);
+		this.readView = new ReadView(this.partitionPages, pageSize, pageSizeInBits);
 	}
 	
 	/**
@@ -340,7 +359,7 @@ public class InMemoryPartition<T> {
 	private static final class ReadView extends AbstractPagedInputView implements SeekableDataInputView {
 
 		private final ArrayList<MemorySegment> segments;
-		
+
 		private final int segmentSizeBits;
 		
 		private final int segmentSizeMask;
