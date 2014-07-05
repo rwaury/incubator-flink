@@ -144,7 +144,7 @@ public class InMemoryPartition<T> {
 	/**
 	 * resets read and write views and should only be used on compaction partition
 	 */
-	public void resetIOViews() {
+	public void resetRWViews() {
 		this.writeView.resetTo(0L);
 		this.readView.setReadPosition(0L);
 	}
@@ -244,8 +244,7 @@ public class InMemoryPartition<T> {
 			for (int k = 0; k < this.numOverflowSegments; k++) {
 				target.add(this.overflowSegments[k]);
 			}
-		}
-		
+		}	
 		// return the partition buffers
 		target.addAll(this.partitionPages);
 		this.partitionPages.clear();
@@ -268,12 +267,6 @@ public class InMemoryPartition<T> {
 		}
 	}
 	
-	public void releaseSegments(int maxSegmentNumber, ArrayList<MemorySegment> target) {
-		while(getBlockCount() > maxSegmentNumber) {
-			target.add(partitionPages.remove(partitionPages.size()-1));
-		}
-	}
-
 	@Override
 	public String toString() {
 		return String.format("Partition %d - %d records, %d partition blocks, %d bucket overflow blocks", getPartitionNumber(), getRecordCount(), getBlockCount(), this.numOverflowSegments);

@@ -358,12 +358,12 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 		
 		// get the basic characteristics of the bucket
 		final int partitionNumber = bucket.get(bucketInSegmentPos + HEADER_PARTITION_OFFSET);
-		final InMemoryPartition<T> p = this.partitions.get(partitionNumber);
+		InMemoryPartition<T> partition = this.partitions.get(partitionNumber);
 		
 		
 		long pointer;
 		try {
-			pointer = p.appendRecord(record);
+			pointer = partition.appendRecord(record);
 			if((pointer >> this.pageSizeInBits) > this.compactionMemory.getBlockCount()) {
 				this.compactionMemory.allocateSegments((int)(pointer >> this.pageSizeInBits));
 			}
@@ -371,7 +371,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 			try {
 				compactPartition(partitionNumber);
 				// retry append
-				pointer = this.partitions.get(partitionNumber).appendRecord(record);
+				partition = this.partitions.get(partitionNumber); // compaction invalidates reference
+				pointer = partition.appendRecord(record);
 			} catch (EOFException ex) {
 				throw new RuntimeException("Memory ran out. Compaction failed. " + 
 											getMemoryConsumptionString() +
@@ -385,7 +386,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 			try {
 				compactPartition(partitionNumber);
 				// retry append
-				pointer = this.partitions.get(partitionNumber).appendRecord(record);
+				partition = this.partitions.get(partitionNumber); // compaction invalidates reference
+				pointer = partition.appendRecord(record);
 			} catch (EOFException ex) {
 				throw new RuntimeException("Memory ran out. Compaction failed. " + 
 											getMemoryConsumptionString() +
@@ -396,7 +398,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 											" Message: " + ex.getMessage());
 			}
 		}
-		insertBucketEntryFromStart(p, bucket, bucketInSegmentPos, hashCode, pointer);
+		insertBucketEntryFromStart(partition, bucket, bucketInSegmentPos, hashCode, pointer);
 	}
 	
 	
@@ -438,7 +440,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 		
 		// get the basic characteristics of the bucket
 		final int partitionNumber = bucket.get(bucketInSegmentOffset + HEADER_PARTITION_OFFSET);
-		final InMemoryPartition<T> partition = this.partitions.get(partitionNumber);
+		InMemoryPartition<T> partition = this.partitions.get(partitionNumber);
 		final MemorySegment[] overflowSegments = partition.overflowSegments;
 		
 		this.buildSideComparator.setReference(record);
@@ -482,7 +484,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 						try {
 							compactPartition(partition.getPartitionNumber());
 							// retry append
-							newPointer = this.partitions.get(partitionNumber).appendRecord(record);
+							partition = this.partitions.get(partitionNumber); // compaction invalidates reference
+							newPointer = partition.appendRecord(record);
 						} catch (EOFException ex) {
 							throw new RuntimeException("Memory ran out. Compaction failed. " + 
 														getMemoryConsumptionString() +
@@ -500,7 +503,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 						try {
 							compactPartition(partition.getPartitionNumber());
 							// retry append
-							newPointer = this.partitions.get(partitionNumber).appendRecord(record);
+							partition = this.partitions.get(partitionNumber); // compaction invalidates reference
+							newPointer = partition.appendRecord(record);
 						} catch (EOFException ex) {
 							throw new RuntimeException("Memory ran out. Compaction failed. " + 
 														getMemoryConsumptionString() +
@@ -1105,6 +1109,7 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 	private void compactPartition(final int partitionNumber) throws IOException {
 		// do nothing if table was closed, parameter is invalid or no garbage exists
 		if(this.closed.get() || partitionNumber >= this.partitions.size() || this.partitions.get(partitionNumber).isCompacted()) {
+			//System.out.println("Invalid compaction! partition: " + partitionNumber + " compacted: " + this.partitions.get(partitionNumber).isCompacted());
 			return;
 		}
 		// release all segments owned by compaction partition
@@ -1197,25 +1202,21 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 		// swap partition with compaction partition
 		this.compactionMemory.setPartitionNumber(partitionNumber);
 		this.partitions.add(partitionNumber, compactionMemory);
-		this.compactionMemory = partition;
-		this.partitions.get(partitionNumber).overflowSegments = this.compactionMemory.overflowSegments;
-		this.partitions.get(partitionNumber).numOverflowSegments = this.compactionMemory.numOverflowSegments;
-		this.partitions.get(partitionNumber).nextOverflowBucket = this.compactionMemory.nextOverflowBucket;
+		this.partitions.get(partitionNumber).overflowSegments = partition.overflowSegments;
+		this.partitions.get(partitionNumber).numOverflowSegments = partition.numOverflowSegments;
+		this.partitions.get(partitionNumber).nextOverflowBucket = partition.nextOverflowBucket;
 		this.partitions.get(partitionNumber).setCompaction(true);
+		this.compactionMemory = partition;
 		this.compactionMemory.resetRecordCounter();
 		this.compactionMemory.setPartitionNumber(-1);
+		this.compactionMemory.overflowSegments = null;
+		this.compactionMemory.numOverflowSegments = 0;
+		this.compactionMemory.nextOverflowBucket = 0;
 		// try to allocate maximum segment count
-		int maxSegmentNumber = 0;
-		for (InMemoryPartition<T> e : this.partitions) {
-			if(e.getBlockCount() > maxSegmentNumber) {
-				maxSegmentNumber = e.getBlockCount();
-			}
-		}
+		this.compactionMemory.clearAllMemory(this.availableMemory);
+		int maxSegmentNumber = this.getMaxPartition();
 		this.compactionMemory.allocateSegments(maxSegmentNumber);
-		if(this.compactionMemory.getBlockCount() > maxSegmentNumber) {
-			this.compactionMemory.releaseSegments(maxSegmentNumber, availableMemory);
-		}
-		this.compactionMemory.resetIOViews();
+		this.compactionMemory.resetRWViews();
 	}
 	
 	/**
@@ -1385,8 +1386,8 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 			
 			// get the basic characteristics of the bucket
 			final int partitionNumber = bucket.get(bucketInSegmentOffset + HEADER_PARTITION_OFFSET);
-			final InMemoryPartition<T> partition = partitions.get(partitionNumber);
-			final MemorySegment[] overflowSegments = partition.overflowSegments;
+			final InMemoryPartition<T> p = partitions.get(partitionNumber);
+			final MemorySegment[] overflowSegments = p.overflowSegments;
 			
 			this.pairComparator.setReference(probeSideRecord);
 			
@@ -1411,10 +1412,10 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 						
 						// deserialize the key to check whether it is really equal, or whether we had only a hash collision
 						try {
-							partition.readRecordAt(pointer, targetForMatch);
+							p.readRecordAt(pointer, targetForMatch);
 							
 							if (this.pairComparator.equalToReference(targetForMatch)) {
-								this.partition = partition;
+								this.partition = p;
 								this.bucket = bucket;
 								this.pointerOffsetInBucket = pointerOffset;
 								return true;
@@ -1448,9 +1449,46 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 			if(closed.get()) {
 				return;
 			}
-			long newPointer = this.partition.appendRecord(record);
+			long newPointer;
+			try {
+				newPointer = this.partition.appendRecord(record);
+			} catch (EOFException e) {
+				// system is out of memory so we attempt to reclaim memory with a copy compact run
+				try {
+					int partitionNumber = this.partition.getPartitionNumber();
+					compactPartition(partitionNumber);
+					// retry append
+					this.partition = partitions.get(partitionNumber);
+					newPointer = this.partition.appendRecord(record);
+				} catch (EOFException ex) {
+					throw new RuntimeException("Memory ran out. Compaction failed. " + 
+												getMemoryConsumptionString() +
+												" Message: " + ex.getMessage());
+				} catch (IndexOutOfBoundsException ex) {
+					throw new RuntimeException("Memory ran out. Compaction failed. " + 
+												getMemoryConsumptionString() +
+												" Message: " + ex.getMessage());
+				}
+			} catch (IndexOutOfBoundsException e) {
+				// system is out of memory so we attempt to reclaim memory with a copy compact run
+				try {
+					int partitionNumber = this.partition.getPartitionNumber();
+					compactPartition(partitionNumber);
+					// retry append
+					this.partition = partitions.get(partitionNumber);
+					newPointer = this.partition.appendRecord(record);
+				} catch (EOFException ex) {
+					throw new RuntimeException("Memory ran out. Compaction failed. " + 
+												getMemoryConsumptionString() +
+												" Message: " + ex.getMessage());
+				} catch (IndexOutOfBoundsException ex) {
+					throw new RuntimeException("Memory ran out. Compaction failed. " + 
+												getMemoryConsumptionString() +
+												" Message: " + ex.getMessage());
+				}
+			}
 			this.bucket.putLong(this.pointerOffsetInBucket, newPointer);
-			this.partition.setCompaction(false); //FIXME Do we really create garbage here?
+			this.partition.setCompaction(false);
 		}
 	}
 }
