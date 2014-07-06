@@ -22,14 +22,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-import it.unimi.dsi.fastutil.ints.IntArrayList;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
-
 import eu.stratosphere.api.common.typeutils.TypeComparator;
 import eu.stratosphere.api.common.typeutils.TypePairComparator;
 import eu.stratosphere.api.common.typeutils.TypeSerializer;
 import eu.stratosphere.core.memory.MemorySegment;
 import eu.stratosphere.nephele.services.memorymanager.ListMemorySegmentSource;
+import eu.stratosphere.pact.runtime.util.IntArrayList;
+import eu.stratosphere.pact.runtime.util.LongArrayList;
 import eu.stratosphere.pact.runtime.util.MathUtils;
 import eu.stratosphere.util.MutableObjectIterator;
 
@@ -1156,46 +1155,6 @@ public class CompactingHashTable<T> extends AbstractMutableHashTable<T>{
 					numInSegment = 0;
 				}
 				segment = this.buckets[i];
-				/*bucketOffset = k * HASH_BUCKET_SIZE;
-				if((int)segment.get(bucketOffset + HEADER_PARTITION_OFFSET) != partitionNumber) {
-					throw new IOException("Accessed wrong bucket! ");
-				}
-				int count = segment.getInt(bucketOffset + HEADER_COUNT_OFFSET);
-				for (int j = 0; j < NUM_ENTRIES_PER_BUCKET && j < count; j++) {
-					pointerOffset = bucketOffset + BUCKET_POINTER_START_OFFSET + (j * POINTER_LEN);
-					pointer = segment.getLong(pointerOffset);
-					partition.readRecordAt(pointer, tempHolder);
-					pointer = this.compactionMemory.appendRecord(tempHolder);
-					segment.putLong(pointerOffset, pointer);
-				}
-				long overflowPointer = segment.getLong(bucketOffset + HEADER_FORWARD_OFFSET);
-				if(overflowPointer != BUCKET_FORWARD_POINTER_NOT_SET) {
-					// scan overflow buckets
-					int current = NUM_ENTRIES_PER_BUCKET;
-					int overflowSegNum = (int) (overflowPointer >>> 32);
-					bucketOffset = (int) (overflowPointer & 0xffffffff);
-					pointerOffset = ((int) (overflowPointer & 0xffffffff)) + BUCKET_POINTER_START_OFFSET;
-					count += partition.overflowSegments[overflowSegNum].getInt(bucketOffset + HEADER_COUNT_OFFSET);
-					while(current < count) {
-						pointer = partition.overflowSegments[overflowSegNum].getLong(pointerOffset);
-						partition.readRecordAt(pointer, tempHolder);
-						pointer = this.compactionMemory.appendRecord(tempHolder);
-						partition.overflowSegments[overflowSegNum].putLong(pointerOffset, pointer);
-						current++;
-						if(current % NUM_ENTRIES_PER_BUCKET == 0) {
-							overflowPointer = partition.overflowSegments[overflowSegNum].getLong(bucketOffset + HEADER_FORWARD_OFFSET);
-							if(overflowPointer == BUCKET_FORWARD_POINTER_NOT_SET) {
-								break;
-							}
-							overflowSegNum = (int) (overflowPointer >>> 32);
-							bucketOffset = (int) (overflowPointer & 0xffffffff);
-							pointerOffset = ((int) (overflowPointer & 0xffffffff)) + BUCKET_POINTER_START_OFFSET;
-							count += partition.overflowSegments[overflowSegNum].getInt(bucketOffset + HEADER_COUNT_OFFSET);
-						} else {
-							pointerOffset += POINTER_LEN;
-						}
-					}
-				}*/
 			}
 		}
 		// swap partition with compaction partition

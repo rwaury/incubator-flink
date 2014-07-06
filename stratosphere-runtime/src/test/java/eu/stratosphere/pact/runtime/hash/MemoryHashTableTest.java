@@ -76,13 +76,13 @@ public class MemoryHashTableTest {
 	
 	private final TypePairComparator<IntPair, IntList> pairComparatorPL =new IntPairListPairComparator();
 	
-	private final int SIZE = 69;
+	private final int SIZE = 75;
 	
-	private final int NUM_PAIRS = 1000000;
+	private final int NUM_PAIRS = 100000;
 
-	private final int NUM_LISTS = 1000000;
+	private final int NUM_LISTS = 100000;
 	
-	private final int ADDITIONAL_MEM = 1000;
+	private final int ADDITIONAL_MEM = 100;
 	
 
 	private final TypeSerializer<StringPair> serializerS = new StringPairSerializer();
@@ -214,7 +214,6 @@ public class MemoryHashTableTest {
 				try {
 					table.insert(lists[i]);
 				} catch (Exception e) {
-					//System.out.println("index: " + i + " ");
 					throw e;
 				}
 			}

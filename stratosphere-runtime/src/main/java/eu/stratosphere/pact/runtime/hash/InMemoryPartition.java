@@ -51,12 +51,6 @@ public class InMemoryPartition<T> {
 	
 	private final ListMemorySegmentSource availableMemory;
 	
-	/*
-	private final WriteView writeView;
-	
-	private final ReadView readView;
-	*/
-	
 	private WriteView writeView;
 	
 	private ReadView readView;
@@ -69,7 +63,7 @@ public class InMemoryPartition<T> {
 	
 	private boolean compacted;						// overwritten records since allocation or last full compaction
 	
-	private int pageSize;
+	private int pageSize;							// segment size in bytes
 	
 	private int pageSizeInBits;
 	
